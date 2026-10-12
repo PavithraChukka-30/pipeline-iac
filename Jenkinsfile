@@ -9,6 +9,7 @@ pipeline {
         AWS_DEFAULT_REGION = 'ap-south-1'
         TF_IN_AUTOMATION   = 'true'
         TF_VAR_my_ip_cidr  = '183.82.106.91/32'
+        APP_NAME           = 'myapp'
     }
 
     stages {
@@ -26,13 +27,11 @@ pipeline {
             }
         }
 
-        stage('Validate') {
-            steps {
-                sh 'terraform validate'
-            }
+        stage('Terraform Validate') {
+            steps { sh 'terraform validate' }
         }
 
-        stage('Plan') {
+        stage('Terraform Plan') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'aws-creds',
                         usernameVariable: 'AWS_ACCESS_KEY_ID',
@@ -49,7 +48,7 @@ pipeline {
             }
         }
 
-        stage('Apply / Destroy') {
+        stage('Terraform Apply / Destroy') {
             when { expression { params.ACTION != 'plan' } }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'aws-creds',
@@ -65,10 +64,47 @@ pipeline {
                 }
             }
         }
+
+        stage('App Build') {
+            when { expression { params.ACTION != 'destroy' } }
+            steps {
+                dir('app') {
+                    sh 'mkdir -p build && echo "${APP_NAME} v1.${BUILD_NUMBER}" > build/app.txt'
+                }
+            }
+        }
+
+        stage('App Test') {
+            when { expression { params.ACTION != 'destroy' } }
+            steps {
+                dir('app') {
+                    sh 'test -f build/app.txt && echo "Test passed"'
+                }
+            }
+        }
+
+        stage('App Package') {
+            when { expression { params.ACTION != 'destroy' } }
+            steps {
+                dir('app') {
+                    sh 'tar czf ${APP_NAME}-${BUILD_NUMBER}.tar.gz build/'
+                    archiveArtifacts artifacts: '*.tar.gz', fingerprint: true
+                }
+            }
+        }
+
+        stage('App Deploy') {
+            when { expression { params.ACTION != 'destroy' } }
+            steps {
+                dir('app') {
+                    sh 'mkdir -p /var/jenkins_home/deploy && cp ${APP_NAME}-${BUILD_NUMBER}.tar.gz /var/jenkins_home/deploy/'
+                }
+            }
+        }
     }
 
     post {
-        success { echo "Terraform ${params.ACTION} finished" }
-        failure { echo 'Terraform pipeline failed' }
+        success { echo "Pipeline finished (ACTION=${params.ACTION})" }
+        failure { echo 'Pipeline failed' }
     }
 }
