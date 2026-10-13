@@ -1,5 +1,5 @@
 output "jenkins_url" {
-  value = "http://${aws_eip.jenkins.public_ip}:8080"
+  value = "http://${aws_lb.jenkins.dns_name}"
 }
 
 output "instance_id" {
